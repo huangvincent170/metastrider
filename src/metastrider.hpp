@@ -189,11 +189,6 @@ class Metastrider {
             }
             merged_data.push_back(next_data);
         }
-
-        // assert(old_pivot_idx.has_value());
-
-        
-
         
         std::optional<std::pair<std::vector<pairT>, bool>> ret = {};
         // if there is no leftover data, then add it to the node
@@ -203,25 +198,20 @@ class Metastrider {
         } else {
             // there exists leftover data which cannot fit in current node, should be passed down
             data_node.clear();
-            // data_node.reserve(K);
-            
+            data_node.reserve(K);
 
             if (LT > merged_data.size() / 2) {
                 // send first min(K, elems less than pivot) to left child, write remaining to current node
                 idxT num_elems = std::min(K, LT);
-                // data_node.resize(merged_data.size() - num_elems);
                 auto mid = merged_data.begin() + num_elems;
                 std::vector<pairT> child_insert_data(merged_data.begin(), mid);
-                // std::copy(mid, merged_data.end(), data_node.begin());
                 data_node.insert(data_node.begin(), mid, merged_data.end());
                 ret = std::make_pair(child_insert_data, 0);
             } else {
                 // send last min(K, elems greater or equal to pivot) to right child, write remaining to current node
                 idxT num_elems = std::min(K, GE);
-                // data_node.resize(merged_data.size() - num_elems);
                 auto mid = merged_data.begin() + (merged_data.size() - num_elems);
                 std::vector<pairT> child_insert_data(mid, merged_data.end());
-                // std::copy(merged_data.begin(), mid, data_node.begin());
                 data_node.insert(data_node.begin(), merged_data.begin(), mid);
                 ret = std::make_pair(child_insert_data, 1);
             }
@@ -230,7 +220,6 @@ class Metastrider {
         // update metadata
         metadata_node.min = data_node.at(0).first;
         metadata_node.max = data_node.at(data_node.size()-1).first;
-        // metadata_node.pivot = data_node.at(data_node.size()/2).first;
 
         return ret;
     } 
@@ -297,23 +286,44 @@ class Metastrider {
         }
     }
 
-    /**
-     * @brief Get the extrema keys object
-     * 
-     * @param vec vector to insert the kv-pair with the min/max 
-     * @param node_idx 
-     * @param n 
-     * @param pq 
-     */
+    
+    // TODO make more efficient
     template<class Compare>
-    void get_extrema_keys(std::vector<pairT> &vec, idxT node_idx, idxT n) {
+    void get_extrema_keys(std::vector<pairT> &vec, idxT node_idx, idxT n, bool min) {
         std::priority_queue<keyT, std::vector<keyT>, Compare> pq;
 
         // maps key to vector of (kv-pair, node_idx)
         std::map<keyT, std::vector<std::pair<pairT, idxT>>> key_map;
-        
+
+        // TODO make more efficient
+        for (pairT kvpair : data.at(node_idx).value()) {
+            keyT k = kvpair.first;
+            // if we are getting the minimum from right subtree,
+            // then we also want to include current node's >= pivot keys
+            // and visa versa for max from left subtree.
+            if ((!min && k >= metadata.at(node_idx).value().pivot)
+                || (min && k < metadata.at(node_idx).value().pivot)) {
+                continue;
+            }
+            auto k_map_find = key_map.find(k);
+            assert(k_map_find == key_map.end());
+            pq.push(kvpair.first);
+            key_map[k].push_back(std::make_pair(kvpair, node_idx));
+        }
+
+        while (pq.size() > n) {
+            key_map.erase(pq.top());
+            pq.pop();
+        }
+
         std::queue<idxT> q;
-        q.push(node_idx);
+        // we want min of right subtree or max of left subtree
+        if (min) {
+            q.push(get_right_child_idx(node_idx));
+        } else {
+            q.push(get_left_child_idx(node_idx));
+        }
+        
         while (q.size() > 0) {
             idxT cur_idx = q.front();
             q.pop();
@@ -323,7 +333,6 @@ class Metastrider {
                     auto k_map_find = key_map.find(k);
                     if (k_map_find == key_map.end()) {
                         pq.push(kvpair.first);
-                        // key_map.insert(std::make_pair(k, std::vector<std::pair<pairT, idxT>>()));
                     }
                     key_map[k].push_back(std::make_pair(kvpair, cur_idx));
                 }
@@ -372,166 +381,12 @@ class Metastrider {
     }
 
     void get_max_keys(std::vector<pairT> &vec, idxT node_idx, idxT n) {
-        get_extrema_keys<std::greater<keyT>>(vec, node_idx, n);
+        get_extrema_keys<std::greater<keyT>>(vec, node_idx, n, false);
     }
 
     void get_min_keys(std::vector<pairT> &vec, idxT node_idx, idxT n) {
-        get_extrema_keys<std::less<keyT>>(vec, node_idx, n);
+        get_extrema_keys<std::less<keyT>>(vec, node_idx, n, true);
     }
-    
-
-
-    // // given a node's index, finds n maximal keys in its subtrees
-    // // will also remove those keys from their respective nodes
-    // // assumes that all keys in left subtree are < all keys in current node
-    // // and same for max and right subtree
-    // void get_max_keys(std::vector<pairT> &vec, idxT node_idx, idxT n) {
-    //     using pqT = std::pair<pairT, idxT>;
-    //     std::priority_queue<pqT, std::vector<pqT>, std::greater<pqT>> pq;
-    //     std::queue<idxT> q;
-    //     q.push(node_idx);
-    //     while (q.size() > 0) {
-    //         idxT cur_idx = q.front();
-    //         q.pop();
-    //         if (is_defined_node(cur_idx)) {
-    //             for (pairT pair : data.at(cur_idx).value()) {
-    //                 pq.push(std::make_pair(pair, cur_idx));
-    //             }
-    //             while (pq.size() > n) {
-    //                 pq.pop();
-    //             }
-    //             if (has_left_child(cur_idx)) {
-    //                 q.push(get_left_child_idx(cur_idx));
-    //             }
-    //             if (has_right_child(cur_idx)) {
-    //                 q.push(get_right_child_idx(cur_idx));
-    //             }
-    //         }
-    //     }
-    //     for (idxT i = 0; i < n; i++) {
-    //         if (pq.size() == 0) {
-    //             break;
-    //         }
-    //         keyT max_key = pq.top();
-    //         auto max_key_find = 
-    //         pairT max_pair = pq.top().first;
-    //         idxT rem_node_idx = pq.top().second;
-    //         vec.push_back(max_pair);
-    //         std::vector<pairT> &data_node = data.at(rem_node_idx).value();
-    //         auto rem_node_find = std::find(data_node.begin(), data_node.end(), max_pair);
-    //         assert(rem_node_find != data_node.end());
-    //         // assert(rem_node_find == data_node.begin() + (data_node.size() - 1));
-    //         data_node.erase(rem_node_find);
-    //         update_metadata(rem_node_idx);
-    //         pq.pop();
-    //     }
-    //     // assert(vec.size() <= n);
-    //     // if (node_idx > metadata.size() || !metadata.at(node_idx).has_value() || vec.size() == n) {
-    //     //     return;
-    //     // }
-    //     // get_max_keys(vec, get_right_child_idx(node_idx), n);
-    //     // if (vec.size() == n) {
-    //     //     return;
-    //     // }
-    //     // std::vector<pairT> &data_node = data.at(node_idx).value();
-    //     // idxT num_elem_to_insert = std::min(n - vec.size(), data_node.size());
-    //     // auto data_begin = data_node.begin() + (data_node.size() - num_elem_to_insert);
-    //     // auto data_end = data_node.end();
-    //     // vec.insert(vec.begin(), data_begin, data_end);
-    //     // data_node.erase(data_begin, data_end);
-
-    //     // // update metadata
-    //     // if (data_node.size() > 0) {
-    //     //     metadata.at(node_idx).value().min = data_node.at(0).first;
-    //     //     metadata.at(node_idx).value().max = data_node.at(data_node.size()-1).first;
-    //     // } else {
-    //     //     metadata.at(node_idx).value().min = {};
-    //     //     metadata.at(node_idx).value().max = {};
-    //     // }
-    //     // get_max_keys(vec, get_left_child_idx(node_idx), n);
-    // }
-
-    // void get_min_keys(std::vector<pairT> &vec, idxT node_idx, idxT n) {
-    //     std::priority_queue<keyT, std::vector<keyT>, std::less<keyT>> pq;
-
-    //     // maps key to vector of (kv-pair, node_idx)
-    //     std::map<keyT, std::vector<std::pair<pairT, idxT>>> key_map;
-
-    //     std::queue<idxT> q;
-    //     q.push(node_idx);
-    //     while (q.size() > 0) {
-    //         idxT cur_idx = q.front();
-    //         q.pop();
-    //         if (is_defined_node(cur_idx)) {
-    //             for (pairT pair : data.at(cur_idx).value()) {
-    //                 keyT k = pair.first;
-    //                 auto k_map_find = key_to_node_idx_map.find(k)
-    //                 if (k_map_find == key_to_node_idx_map.end()) {
-    //                     pq.push(pair.first);
-    //                     key_to_node_idx_map.insert(k, cur_idx);
-    //                 } else {
-    //                     key_to_node_idx_map[k].push_back(cur_idx);
-    //                 }
-    //             }
-    //             while (pq.size() > n) {
-    //                 key_to_node_idx_map.erase(pq.top());
-    //                 pq.pop();
-    //             }
-    //             if (has_left_child(cur_idx)) {
-    //                 q.push(get_left_child_idx(cur_idx));
-    //             }
-    //             if (has_right_child(cur_idx)) {
-    //                 q.push(get_right_child_idx(cur_idx));
-    //             }
-    //         }
-    //     }
-    //     for (idxT i = 0; i < n; i++) {
-    //         if (pq.size() == 0) {
-    //             break;
-    //         }
-    //         keyT min_key = pq.top();
-    //         auto find_min_key = key_to_node_idx_map.find(min_key);
-    //         assert(find_min_key != key_to_node_idx_map.end());
-    //         for (idxT rem_idx : key_to_node_idx_map[min_key]) {
-    //             auto rem_node_find = std::find(data_node.begin(), data_node.end(), min_pair);
-    //             assert(rem_node_find != data_node.end());
-    //             data_node.erase(rem_node_find);
-    //         }
-    //         vec.insert(vec.begin(), std::);
-    //         std::vector<pairT> &data_node = data.at(rem_node_idx).value();
-    //         auto rem_node_find = std::find(data_node.begin(), data_node.end(), min_pair);
-    //         assert(rem_node_find != data_node.end());
-    //         // assert(rem_node_find == data_node.begin() + (data_node.size() - 1));
-    //         data_node.erase(rem_node_find);
-    //         update_metadata(rem_node_idx);
-    //         pq.pop();
-    //     }
-    //     // assert(vec.size() <= n);
-    //     // if (node_idx > metadata.size() || !metadata.at(node_idx).has_value() || vec.size() == n) {
-    //     //     return;
-    //     // }
-    //     // get_min_keys(vec, get_left_child_idx(node_idx), n);
-    //     // if (vec.size() == n) {
-    //     //     return;
-    //     // }
-    //     // std::vector<pairT> &data_node = data.at(node_idx).value();
-    //     // idxT num_elem_to_insert = std::min(n - vec.size(), data_node.size());
-    //     // auto data_begin = data_node.begin();
-    //     // auto data_end = data_node.begin() + num_elem_to_insert;
-    //     // vec.insert(vec.begin(), data_begin, data_end);
-    //     // data_node.erase(data_begin, data_end);
-        
-    //     // if (data_node.size() > 0) {
-    //     //     metadata.at(node_idx).value().min = data_node.at(0).first;
-    //     //     metadata.at(node_idx).value().max = data_node.at(data_node.size()-1).first;
-    //     // } else {
-    //     //     // TODO if leaf node, can safely delete
-    //     //     metadata.at(node_idx).value().min = {};
-    //     //     metadata.at(node_idx).value().max = {};
-    //     // }
-    //     // get_min_keys(vec, get_right_child_idx(node_idx), n);
-    // }
-
 
     void global_reduce(idxT node_idx = 0) {
         // if node does not exist, nothing to do.
@@ -539,18 +394,17 @@ class Metastrider {
             return;
         }
 
-        
-
         // if node's children do not exist, then it is a leaf node. nothing to do
         if (!has_left_child(node_idx) && !has_right_child(node_idx)) {
             return;
         }
 
-        // global_reduce(2 * node_idx + 1); // reduce left subtree
-        // global_reduce(2 * node_idx + 2); // reduce right subtree
+        std::vector<pairT> &data_node = data.at(node_idx).value();
+        MetadataNode<keyT, valT> &metadata_node = metadata.at(node_idx).value();
 
-        idxT LT = 0;
-        idxT GE = 0;
+        // TODO include LT and GE in metadata?
+        idxT LT;
+        idxT GE;
         
         if (has_left_child(node_idx)) {
             // replace curr node's keys which are less than pivot with left subtree's
@@ -558,9 +412,10 @@ class Metastrider {
             // This way, all of the left subtree's keys are still less than the current node's
             // keys.
 
-            
-            for (pairT pair : data.at(node_idx).value()) {
-                if (pair.first < metadata.at(node_idx).value().pivot) {
+            LT = 0;
+            GE = 0;
+            for (pairT pair : data_node) {
+                if (pair.first < metadata_node.pivot) {
                     LT += 1;
                 } else {
                     GE += 1;
@@ -568,42 +423,26 @@ class Metastrider {
             }
 
             std::vector<pairT> max_pairs;
-            get_max_keys(max_pairs, get_left_child_idx(node_idx), std::max(LT, K - GE));
+            get_max_keys(max_pairs, node_idx, std::max(LT, K - GE));
 
-            // std::vector<pairT> &data_node = data.at(node_idx).value();
-            // // move items not less than pivot from data node to maximal vector
-            // max_pairs.insert(max_pairs.end(), data_node.begin() + LT, data_node.end());
-            // data_node.resize(LT);
-            // // swap data node and maximal vector
-            // data_node.swap(max_pairs);
-
-            // for (pairT p : max_pairs) {
-            //     std::vector<pairT> vec{p};
-            //     add_vec(vec, node_idx);
-            // }
-            std::cout << "adding left subtree max vec:\n";
-            for (pairT pair : max_pairs) {
-                std::cout << pair << ", ";
+            LT = 0;
+            GE = 0;
+            for (pairT pair : data_node) {
+                if (pair.first < metadata_node.pivot) {
+                    LT += 1;
+                } else {
+                    GE += 1;
+                }
             }
-            std::cout << "\n";
-            add_vec(max_pairs, node_idx);
             
-            print_data("post left subtree max vec");
+            
 
-            // // find leaf node w/ max key in left subtree
-            // idxT max_child_idx = get_left_child_idx(node_idx);
-            // while (has_right_child(max_child_idx)) {
-            //     max_child_idx = get_right_child_idx(max_child_idx);
-            // }
-
-            // // add vec with max node at parent
-            // std::vector<pairT> max_data_node(
-            //     data.at(max_child_idx).value().begin(),
-            //     data.at(max_child_idx).value().end()
-            // );
-            // data.at(max_child_idx) = {};
-            // metadata.at(max_child_idx) = {};
-            // add_vec(max_data_node, get_left_child_idx(node_idx));
+            std::vector<pairT> cur_LT_pairs(data_node.begin(), data_node.begin() + LT);
+            data_node.erase(data_node.begin(), data_node.begin() + LT);
+            data_node.insert(data_node.begin(), max_pairs.begin(), max_pairs.end());
+            update_metadata(node_idx);
+            add_vec(cur_LT_pairs, get_left_child_idx(node_idx));
+            // print_data("post left subtree max vec");
         }
         
 
@@ -611,8 +450,8 @@ class Metastrider {
         if (has_right_child(node_idx)) {
             LT = 0;
             GE = 0;
-            for (pairT pair : data.at(node_idx).value()) {
-                if (pair.first < metadata.at(node_idx).value().pivot) {
+            for (pairT pair : data_node) {
+                if (pair.first < metadata_node.pivot) {
                     LT += 1;
                 } else {
                     GE += 1;
@@ -620,48 +459,66 @@ class Metastrider {
             }
 
             std::vector<pairT> min_pairs;
-            get_min_keys(min_pairs, get_right_child_idx(node_idx), std::max(GE, K - LT));
+            get_min_keys(min_pairs, node_idx, std::max(GE, K - LT));
 
-            // for (pairT p : min_pairs) {
-            //     std::vector<pairT> vec{p};
-            //     add_vec(vec, node_idx);
-            // }
-            std::cout << "adding right subtree min vec:\n";
-            for (auto pair : min_pairs) {
-                std::cout << pair << ", ";
+            LT = 0;
+            GE = 0;
+            for (pairT pair : data_node) {
+                if (pair.first < metadata_node.pivot) {
+                    LT += 1;
+                } else {
+                    GE += 1;
+                }
             }
-            std::cout << "\n";
-            add_vec(min_pairs, node_idx);
-            
-            print_data("post right subtree min vec");
-
-            // idxT min_child_idx = get_right_child_idx(node_idx);
-            // while (has_left_child(min_child_idx)) {
-            //     min_child_idx = get_left_child_idx(min_child_idx);
-            // }
-
-            // // add vec with min node at parent
-            // std::vector<pairT> min_data_node(
-            //     data.at(min_child_idx).value().begin(),
-            //     data.at(min_child_idx).value().end()
-            // );
-            // data.at(min_child_idx) = {};
-            // metadata.at(min_child_idx) = {};
-            // add_vec(min_data_node, get_right_child_idx(node_idx));
+            std::vector<pairT> cur_GE_pairs(data_node.begin() + (data_node.size() - GE), data_node.end());
+            data_node.erase(data_node.begin() + (data_node.size() - GE), data_node.end());
+            data_node.insert(data_node.end(), min_pairs.begin(), min_pairs.end());
+            update_metadata(node_idx);
+            add_vec(cur_GE_pairs, get_right_child_idx(node_idx));
         }
 
-        std::string state_str("post global reduce idx ");
-        state_str.append(std::to_string(node_idx));
-        print_data(state_str.c_str());
+        // std::string state_str("post global reduce idx ");
+        // state_str.append(std::to_string(node_idx));
+        // print_data(state_str.c_str(), true, node_idx);
+        validate_node(node_idx);
 
         global_reduce(2 * node_idx + 1); // reduce left subtree
         global_reduce(2 * node_idx + 2); // reduce right subtree
-        
+    }
 
-        
+    void validate_node(idxT idx) {
+        std::optional<keyT> min_k = {};
+        std::optional<keyT> max_k = {};
+        validate_node(idx, min_k, max_k);
+    }
 
-        
-        // validate(node_idx, {}, {}, true);
+    void validate_node(idxT idx, std::optional<keyT> &min_key, std::optional<keyT> &max_key) {
+        if (idx >= data.size() || !data.at(idx).has_value()) {
+            assert(idx >= metadata.size() || !metadata.at(idx).has_value());
+            return;
+        }
+
+        assert(metadata.at(idx).has_value());
+
+        const std::vector<pairT> &data_node = data.at(idx).value();
+        const MetadataNode<keyT, valT> &metadata_node = metadata.at(idx).value();
+
+        if (data_node.size() != 0) {
+            min_key = data_node.at(0).first;
+            max_key = data_node.at(data_node.size() - 1).first;
+
+            for (idxT i = 0; i < data_node.size(); i++) {
+                if (i > 0) {
+                    assert(min_key.value() < data_node.at(i).first);
+                    assert(data_node.at(i-1).first < data_node.at(i).first);
+                }
+                if (i < data_node.size() - 1) {
+                    assert(max_key.value() > data_node.at(i).first);
+                }
+            }
+        }
+        assert(min_key == metadata_node.min);
+        assert(max_key == metadata_node.max);
     }
 
     void validate(bool strict) {
@@ -683,33 +540,35 @@ class Metastrider {
             return;
         }
 
-        assert(metadata.at(idx).has_value());
+        // assert(metadata.at(idx).has_value());
         assert(
             !min_key_valid.has_value() || !max_key_valid.has_value()
             || min_key_valid.value() < max_key_valid.value()
         );
 
-        std::vector<pairT> data_node = data.at(idx).value();
-        MetadataNode<keyT, valT> metadata_node = metadata.at(idx).value();
+        // std::vector<pairT> data_node = data.at(idx).value();
+        // const MetadataNode<keyT, valT> &metadata_node = metadata.at(idx).value();
 
         std::optional<keyT> min_key;
         std::optional<keyT> max_key;
-        if (data_node.size() != 0) {
-            min_key = data_node.at(0).first;
-            max_key = data_node.at(data_node.size() - 1).first;
 
-            for (idxT i = 0; i < data_node.size(); i++) {
-                if (i > 0) {
-                    assert(min_key.value() < data_node.at(i).first);
-                    assert(data_node.at(i-1).first < data_node.at(i).first);
-                }
-                if (i < data_node.size() - 1) {
-                    assert(max_key.value() > data_node.at(i).first);
-                }
-            }
-        }
-        assert(min_key == metadata_node.min);
-        assert(max_key == metadata_node.max);
+        validate_node(idx, min_key, max_key);
+        // if (data_node.size() != 0) {
+        //     min_key = data_node.at(0).first;
+        //     max_key = data_node.at(data_node.size() - 1).first;
+
+        //     for (idxT i = 0; i < data_node.size(); i++) {
+        //         if (i > 0) {
+        //             assert(min_key.value() < data_node.at(i).first);
+        //             assert(data_node.at(i-1).first < data_node.at(i).first);
+        //         }
+        //         if (i < data_node.size() - 1) {
+        //             assert(max_key.value() > data_node.at(i).first);
+        //         }
+        //     }
+        // }
+        // assert(min_key == metadata_node.min);
+        // assert(max_key == metadata_node.max);
         
 
         assert(!min_key_valid.has_value() || !min_key.has_value() || min_key_valid.value() <= min_key.value());
@@ -731,17 +590,20 @@ class Metastrider {
             );
         } else {
             // everything in left subtree must be less than current node's pivot
-            validate(get_left_child_idx(idx), min_key_valid, metadata_node.pivot, strict);
+            validate(get_left_child_idx(idx), min_key_valid, metadata.at(idx).value().pivot, strict);
             // everything in right subtree must be greater than current node's pivot
-            validate(get_right_child_idx(idx), metadata_node.pivot, max_key_valid, strict);  
+            validate(get_right_child_idx(idx), metadata.at(idx).value().pivot, max_key_valid, strict);  
         }
         
     }
 
-    void print_data(const char *state = "", bool print_data = true) {
+    void print_data(const char *state = "", bool print_data = true, std::optional<idxT> max_idx = {}) {
         std::cout << "---------------------\nstate ";
         std::cout << state << "\n---------------------\n";
         for (idxT i = 0; i < data.size(); i++) {
+            if (max_idx.has_value() && i > max_idx) {
+                return;
+            }
             if (data.at(i).has_value()) {
                 std::cout << "node " << i << std::endl;
                 std::cout << "meta: " << metadata.at(i).value() << std::endl;
